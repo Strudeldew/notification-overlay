@@ -24,6 +24,15 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 
+/**
+ * Owns the touch-through accessibility window drawn over the status-bar area.
+ *
+ * The service observes repository and preference changes, hides itself while SystemUI panels are
+ * active, follows immersive status-bar visibility, and keeps automatic icon color synchronized
+ * with the foreground window. Window Manager queries run on [appearanceExecutor]; view creation and
+ * all [WindowManager] calls stay on the main thread. Screenshot sampling is never attempted unless
+ * the user explicitly enables that fallback.
+ */
 class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnSharedPreferenceChangeListener {
     private lateinit var windowManager: WindowManager
     private lateinit var preferences: SharedPreferences
@@ -33,6 +42,7 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
     private var automaticIconColor = Color.WHITE
     private val mainHandler = Handler(Looper.getMainLooper())
     private val mainExecutor = Executor { command -> mainHandler.post(command) }
+    // Serialize binder dumps so rapid accessibility events cannot overlap expensive shell reads.
     private val appearanceExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val appearanceQueryInFlight = AtomicBoolean(false)
     private var appearanceRefreshPending = false
@@ -131,6 +141,13 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
         super.onDestroy()
     }
 
+    /**
+     * Reconciles the attached overlay window with current settings, UI state, and notifications.
+     *
+     * This is the single presentation entry point. It removes the window when disabled, covered by
+     * SystemUI, or empty; otherwise it filters and renders a fresh repository snapshot before
+     * updating position and fullscreen visibility.
+     */
     private fun updateOverlay() {
         if (!OverlayConfig.isEnabled(preferences) || systemUiPanelVisible) {
             removeOverlay()
@@ -149,11 +166,14 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
 
         val view = overlayView ?: StatusBarIconView(this).also { newView ->
             overlayView = newView
+            // Standard inset dispatch covers normal status-bar visibility changes.
             newView.setOnApplyWindowInsetsListener { _, insets ->
                 setStatusBarVisibility(statusBarVisibility(insets))
                 insets
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                // Follow animated system bars frame by frame on Android builds that dispatch the
+                // animation to accessibility overlays.
                 newView.setWindowInsetsAnimationCallback(
                     object : WindowInsetsAnimation.Callback(DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
                         override fun onProgress(
@@ -195,6 +215,12 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
         view.alpha = if (statusBarVisible) 1f else 0f
     }
 
+    /**
+     * Creates non-focusable and non-touchable window parameters spanning the status-bar height.
+     *
+     * `TYPE_ACCESSIBILITY_OVERLAY` is supplied by this enabled accessibility service and does not
+     * require the broader draw-over-other-apps permission.
+     */
     private fun createLayoutParams() = WindowManager.LayoutParams(
         WindowManager.LayoutParams.WRAP_CONTENT,
         statusBarHeight(),
@@ -215,6 +241,7 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
         }
     }
 
+    /** Safely detaches the current overlay, tolerating a window already removed by Android. */
     private fun removeOverlay() {
         overlayView?.let { view ->
             try {
@@ -226,6 +253,7 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
         overlayView = null
     }
 
+    /** Returns the platform status-bar height, with a conservative 24 dp OEM fallback. */
     @Suppress("DiscouragedApi")
     @SuppressLint("InternalInsetResource")
     private fun statusBarHeight(): Int {
@@ -238,6 +266,13 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
     private fun alignmentGravity(): Int =
         if (OverlayConfig.alignLeft(preferences)) Gravity.START else Gravity.END
 
+    /**
+     * Returns the best currently available status-bar visibility signal.
+     *
+     * A full-width SystemUI accessibility window is checked first because Sony exposes transient
+     * swipe-to-reveal bars there while leaving this overlay's own [WindowInsets] state hidden.
+     * Regular visibility transitions use the current Window Manager insets on Android 11+.
+     */
     private fun currentStatusBarVisibility(): Boolean =
         if (isStatusBarAccessibilityWindowVisible()) {
             true
@@ -248,6 +283,12 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
             true
         }
 
+    /**
+     * Detects a visible status bar represented as a thin, full-width system accessibility window.
+     *
+     * The width and height checks avoid mistaking dialogs, privacy chips, or navigation overlays
+     * for the status bar. This signal is especially important for transient immersive bars on Sony.
+     */
     private fun isStatusBarAccessibilityWindowVisible(): Boolean {
         val displayWidth = resources.displayMetrics.widthPixels
         val maximumStatusBarHeight = statusBarHeight() * 2
@@ -263,6 +304,7 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
         }
     }
 
+    /** Reads status-bar visibility from insets, with a pre-Android 11 compatibility fallback. */
     @Suppress("DEPRECATION")
     private fun statusBarVisibility(insets: WindowInsets): Boolean =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -271,6 +313,12 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
             insets.systemWindowInsetTop > 0
         }
 
+    /**
+     * Updates whether icon pixels are drawn while leaving the accessibility window attached.
+     *
+     * Keeping an alpha-zero window attached lets it continue receiving inset and accessibility
+     * transitions, so icons can return without recreating the window when immersive mode ends.
+     */
     private fun setStatusBarVisibility(visible: Boolean) {
         if (statusBarVisible == visible) return
         statusBarVisible = visible
@@ -279,6 +327,12 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
         overlayView?.alpha = if (visible) 1f else 0f
     }
 
+    /**
+     * Debounces an automatic-color query on the main thread.
+     *
+     * If a binder query is already running, [appearanceRefreshPending] records that one additional
+     * pass is needed after it completes instead of starting concurrent Window Manager dumps.
+     */
     private fun scheduleAutomaticColorRefresh(delayMillis: Long) {
         if (!::preferences.isInitialized || OverlayConfig.colorMode(preferences) != OverlayConfig.COLOR_MODE_AUTO) {
             return
@@ -288,6 +342,12 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
         mainHandler.postDelayed(refreshAutomaticColor, delayMillis)
     }
 
+    /**
+     * Reads status-bar appearance off the main thread and applies the result on the main thread.
+     *
+     * Shizuku is always tried first. An unknown result triggers screenshot sampling only when the
+     * opt-in preference is enabled; otherwise the last known automatic color is retained.
+     */
     private fun queryAutomaticColor() {
         if (
             OverlayConfig.colorMode(preferences) != OverlayConfig.COLOR_MODE_AUTO ||
@@ -315,12 +375,20 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
         }
     }
 
+    /** Stores and renders a changed automatic color without rebuilding for identical results. */
     private fun applyAutomaticColor(color: Int) {
         if (automaticIconColor == color) return
         automaticIconColor = color
         updateOverlay()
     }
 
+    /**
+     * Captures one accessibility screenshot and derives a contrasting status-bar icon color.
+     *
+     * This privacy-sensitive fallback is gated immediately before capture and again before applying
+     * its result. Android supplies a display-sized hardware buffer; the app copies it only in memory,
+     * samples status-bar pixels, and closes/recycles every buffer without saving the image.
+     */
     private fun sampleStatusBarBackground() {
         if (
             Build.VERSION.SDK_INT < Build.VERSION_CODES.R ||
@@ -364,6 +432,12 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
         }
     }
 
+    /**
+     * Returns black for a light sampled status bar and white for a dark sampled status bar.
+     *
+     * A median across a small grid is used instead of a single pixel so clocks, cutouts, notification
+     * icons, and small gradients are unlikely to flip the result.
+     */
     private fun sampledContrastingColor(bitmap: Bitmap): Int {
         val sampleHeight = minOf(statusBarHeight(), bitmap.height).coerceAtLeast(1)
         val luminances = ArrayList<Double>(SCREENSHOT_SAMPLE_COLUMNS * SCREENSHOT_SAMPLE_ROWS)
@@ -382,6 +456,11 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
         return if (median >= LIGHT_BACKGROUND_LUMINANCE) Color.BLACK else Color.WHITE
     }
 
+    /**
+     * Returns whether the active/focused accessibility window appears to be a SystemUI panel.
+     *
+     * This service's own accessibility window is excluded to prevent it from hiding itself.
+     */
     private fun isSystemUiPanelVisible(): Boolean = windows.any { window ->
         if (window.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY) {
             return@any false

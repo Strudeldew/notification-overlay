@@ -10,7 +10,13 @@ import rikka.shizuku.ShizukuBinderWrapper
 import rikka.shizuku.SystemServiceHelper
 import java.io.File
 
-/** Reads the system-bar appearance selected by the controlling window as the Shizuku shell user. */
+/**
+ * Reads the system-bar appearance selected by the controlling window as the Shizuku shell user.
+ *
+ * Android does not expose another app's requested status-bar icon appearance through a public API.
+ * With explicit Shizuku permission, this reader performs the same read-only Window Manager dump
+ * available to `adb shell dumpsys window displays`, then parses only appearance fields.
+ */
 object ShizukuStatusBarReader {
     private const val TAG = "StatusBarAppearance"
     private const val WINDOW_SERVICE = "window"
@@ -20,6 +26,7 @@ object ShizukuStatusBarReader {
     private const val LIGHT_STATUS_BARS_APPEARANCE = 0x00000008
     private const val LEGACY_LIGHT_STATUS_BAR = 0x00002000
 
+    /** Returns whether a supported Shizuku binder is alive and permission has been granted. */
     fun isAvailableAndGranted(): Boolean = try {
         Shizuku.pingBinder() &&
             !Shizuku.isPreV11() &&
@@ -28,7 +35,12 @@ object ShizukuStatusBarReader {
         false
     }
 
-    /** Returns true for dark status-bar icons, false for light icons, or null if unavailable. */
+    /**
+     * Reads the foreground display's requested status-bar icon tone.
+     *
+     * @return `true` for dark icons, `false` for light icons, or `null` when Shizuku is unavailable,
+     * permission is missing, or the device's dump format is not recognized.
+     */
     fun readDarkIcons(context: Context): Boolean? {
         if (!isAvailableAndGranted()) return null
 
@@ -40,6 +52,12 @@ object ShizukuStatusBarReader {
         }
     }
 
+    /**
+     * Executes Window Manager's binder dump transaction and returns its `displays` output.
+     *
+     * Binder dump output requires a file descriptor, so a private cache file bridges the binder
+     * call to a Kotlin string. The file and all parcels are released on every exit path.
+     */
     private fun dumpWindowManager(context: Context): String {
         val output = File.createTempFile("window-appearance-", ".txt", context.cacheDir)
         try {
@@ -68,6 +86,14 @@ object ShizukuStatusBarReader {
         }
     }
 
+    /**
+     * Parses known AOSP, Sony/OEM, Android 11, and legacy appearance formats.
+     *
+     * Newer, more specific status-bar region data is intentionally preferred over broad or legacy
+     * flags that may also contain navigation-bar state.
+     *
+     * @return `true` for dark icons, `false` for light icons, or `null` for an unknown format.
+     */
     internal fun parseDarkIcons(dump: String): Boolean? {
         val relevantDump = primaryDisplaySection(dump)
 
@@ -121,6 +147,7 @@ object ShizukuStatusBarReader {
         return null
     }
 
+    /** Limits parsing to display 0 so secondary-display state cannot override the phone screen. */
     private fun primaryDisplaySection(dump: String): String {
         val displayStart = DISPLAY_ZERO.find(dump)?.range?.first ?: return dump
         val nextDisplay = NEXT_DISPLAY.find(dump, displayStart + 1)?.range?.first ?: dump.length

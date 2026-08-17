@@ -4,6 +4,13 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.Color
 
+/**
+ * Defines persisted overlay settings, defaults, validation, and legacy preference migration.
+ *
+ * Keep all preference reads here so the activity and both background services interpret stored
+ * values identically. Numeric values are clamped when read to protect rendering from preferences
+ * written by older versions or external debugging tools.
+ */
 object OverlayConfig {
     private const val PREFS = "overlay_config"
     const val KEY_ENABLED = "enabled"
@@ -28,6 +35,7 @@ object OverlayConfig {
     const val COLOR_MODE_LIGHT = "light"
     const val COLOR_MODE_DARK = "dark"
 
+    /** Returns the private preference file shared by the activity and accessibility service. */
     fun preferences(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -36,6 +44,12 @@ object OverlayConfig {
     fun spacingDp(prefs: SharedPreferences) = prefs.getInt(KEY_SPACING_DP, DEFAULT_SPACING_DP).coerceIn(0, 12)
     fun iconSizeDp(prefs: SharedPreferences) = prefs.getInt(KEY_ICON_SIZE_DP, DEFAULT_ICON_SIZE_DP).coerceIn(10, 24)
     fun edgeInsetDp(prefs: SharedPreferences) = prefs.getInt(KEY_EDGE_INSET_DP, DEFAULT_EDGE_INSET_DP).coerceIn(0, 64)
+    /**
+     * Returns one of the `COLOR_MODE_*` values, migrating the former dark-icon boolean on read.
+     *
+     * No value is written during migration; this keeps reads side-effect free and lets the next
+     * explicit user choice become the canonical stored value.
+     */
     fun colorMode(prefs: SharedPreferences): String {
         val stored = prefs.getString(KEY_ICON_COLOR_MODE, null)
         if (stored in setOf(COLOR_MODE_AUTO, COLOR_MODE_LIGHT, COLOR_MODE_DARK)) return stored!!
@@ -48,14 +62,21 @@ object OverlayConfig {
         }
     }
 
+    /** Returns the manual color, using white as the safe initial color for Automatic mode. */
     fun manualIconColor(prefs: SharedPreferences) =
         if (colorMode(prefs) == COLOR_MODE_DARK) Color.BLACK else Color.WHITE
 
+    /** Resolves the final requested color from the selected mode and latest automatic result. */
     fun iconColor(prefs: SharedPreferences, automaticColor: Int) = when (colorMode(prefs)) {
         COLOR_MODE_DARK -> Color.BLACK
         COLOR_MODE_LIGHT -> Color.WHITE
         else -> automaticColor
     }
+    /**
+     * Returns whether accessibility screenshot sampling was explicitly enabled by the user.
+     *
+     * The default must remain `false`: screenshot access is a privacy-sensitive opt-in fallback.
+     */
     fun screenshotFallbackEnabled(prefs: SharedPreferences) =
         prefs.getBoolean(KEY_SCREENSHOT_FALLBACK_ENABLED, DEFAULT_SCREENSHOT_FALLBACK_ENABLED)
     fun alignLeft(prefs: SharedPreferences) = prefs.getBoolean(KEY_ALIGN_LEFT, true)

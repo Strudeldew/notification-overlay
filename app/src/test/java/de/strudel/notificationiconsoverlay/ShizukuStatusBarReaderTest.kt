@@ -5,6 +5,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/** Covers Window Manager formats observed across current AOSP, Sony, and older Android versions. */
 class ShizukuStatusBarReaderTest {
     @Test
     fun parsesNumericSystemBarAppearance() {

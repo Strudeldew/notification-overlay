@@ -29,6 +29,13 @@ import android.widget.Toast
 import rikka.shizuku.Shizuku
 import kotlin.math.roundToInt
 
+/**
+ * Displays the app's setup checklist and all user-configurable overlay options.
+ *
+ * The screen is built programmatically to keep this small utility independent of a view-binding
+ * framework. Preference changes are observed by [StatusBarOverlayService], so controls can write
+ * directly to [OverlayConfig] without explicitly restarting the service.
+ */
 class MainActivity : Activity() {
     private lateinit var preferences: SharedPreferences
     private lateinit var notificationStatus: TextView
@@ -66,6 +73,7 @@ class MainActivity : Activity() {
         refreshPermissionStatus()
     }
 
+    /** Builds the complete scrollable settings screen for the current preference values. */
     private fun buildContent(): View {
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -234,6 +242,18 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * Builds one setup card and returns its status label.
+     *
+     * The caller adds `status.parent` to the page and retains the returned label so permission
+     * state can be refreshed from [onResume].
+     *
+     * @param title heading shown at the top of the card.
+     * @param explanation short reason why the permission or integration is useful.
+     * @param buttonText label for the action button.
+     * @param action invoked when the action button is pressed.
+     * @return the mutable status label contained by the newly created card.
+     */
     private fun permissionCard(
         title: String,
         explanation: String,
@@ -257,6 +277,12 @@ class MainActivity : Activity() {
         return status
     }
 
+    /**
+     * Creates a labelled integer slider whose callback runs only for user-originated changes.
+     *
+     * @param suffix unit appended to the displayed numeric value, such as `" dp"`.
+     * @param onChanged receives each value selected by the user.
+     */
     private fun slider(
         label: String,
         min: Int,
@@ -296,6 +322,7 @@ class MainActivity : Activity() {
         tag = mode
     }
 
+    /** Refreshes notification, accessibility, and Shizuku state after returning from system UI. */
     private fun refreshPermissionStatus() {
         val notificationComponent = ComponentName(this, NotificationIconListenerService::class.java)
         val notificationEnabled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
@@ -312,6 +339,12 @@ class MainActivity : Activity() {
         refreshShizukuStatus()
     }
 
+    /**
+     * Requests Shizuku access when possible and otherwise explains the required user action.
+     *
+     * Shizuku calls can throw while its binder is starting or dying, so every availability check
+     * is intentionally contained in this guarded block.
+     */
     private fun requestShizukuPermission() {
         try {
             when {
@@ -334,6 +367,7 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Reads the current Shizuku binder/permission state and updates the setup card. */
     private fun refreshShizukuStatus() {
         val status = try {
             when {
@@ -350,6 +384,7 @@ class MainActivity : Activity() {
         shizukuStatus.setTextColor(if (enabled) Color.rgb(116, 220, 153) else Color.rgb(255, 176, 102))
     }
 
+    /** Requests Android 13+ notification permission when needed, then posts the test icon. */
     private fun generateTestNotification() {
         if (
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -380,6 +415,7 @@ class MainActivity : Activity() {
         view.setTextColor(if (enabled) Color.rgb(116, 220, 153) else Color.rgb(255, 176, 102))
     }
 
+    /** Returns whether Android currently reports [StatusBarOverlayService] as enabled. */
     private fun isAccessibilityServiceEnabled(): Boolean {
         val manager = getSystemService(Context.ACCESSIBILITY_SERVICE) as android.view.accessibility.AccessibilityManager
         val expected = ComponentName(this, StatusBarOverlayService::class.java)
@@ -400,6 +436,7 @@ class MainActivity : Activity() {
     private fun color(resource: Int): Int = getColor(resource)
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
 
+    /** Applies density-independent margins and returns the same view for fluent construction. */
     private fun <T : View> T.withMargins(
         start: Int = 0,
         top: Int = 0,

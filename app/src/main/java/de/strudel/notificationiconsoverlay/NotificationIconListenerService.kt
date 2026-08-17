@@ -7,6 +7,13 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
 
+/**
+ * Receives notification lifecycle and ranking callbacks from Android.
+ *
+ * This service owns no presentation state. It converts the current system notification snapshot
+ * into [NotificationIcon] records in [NotificationIconRepository], which lets the accessibility
+ * overlay remain independent from the notification-listener lifecycle.
+ */
 class NotificationIconListenerService : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
@@ -30,6 +37,13 @@ class NotificationIconListenerService : NotificationListenerService() {
         refresh(rankingMap)
     }
 
+    /**
+     * Rebuilds the repository from Android's complete active-notification snapshot.
+     *
+     * A full rebuild avoids races between individual post/remove callbacks and ranking updates.
+     * [updatedRanking] is preferred because callback-provided ranking data may be newer than
+     * [currentRanking].
+     */
     private fun refresh(updatedRanking: RankingMap? = null) {
         try {
             val notifications = activeNotifications ?: emptyArray()
@@ -45,6 +59,7 @@ class NotificationIconListenerService : NotificationListenerService() {
         }
     }
 
+    /** Returns whether [packageName] belongs to a system or updated-system application. */
     private fun isSystemPackage(packageName: String): Boolean = try {
         val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             packageManager.getApplicationInfo(packageName, PackageManager.ApplicationInfoFlags.of(0))

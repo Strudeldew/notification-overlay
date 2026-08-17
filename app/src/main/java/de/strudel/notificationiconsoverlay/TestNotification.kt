@@ -6,10 +6,16 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 
+/** Creates the short-lived notification used to verify icon selection, placement, and color. */
 object TestNotification {
     const val NOTIFICATION_ID = 9001
     private const val CHANNEL_ID = "overlay_test"
 
+    /**
+     * Posts a test notification that expires after 30 seconds and opens [MainActivity] when tapped.
+     *
+     * The channel is created on every call because Android treats channel creation as idempotent.
+     */
     fun show(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(

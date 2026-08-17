@@ -10,6 +10,12 @@ import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
 
+/**
+ * Horizontal, touch-through visual row for already selected notification icons.
+ *
+ * Notification drawables are converted into final-color bitmaps before being attached. This avoids
+ * OEM drawable implementations that ignore normal [android.widget.ImageView] tint operations.
+ */
 class StatusBarIconView(context: Context) : LinearLayout(context) {
     init {
         orientation = HORIZONTAL
@@ -19,6 +25,14 @@ class StatusBarIconView(context: Context) : LinearLayout(context) {
         isFocusable = false
     }
 
+    /**
+     * Replaces all child views with the supplied icon snapshot.
+     *
+     * @param icons icons in display order.
+     * @param iconSizePx square width and height of each icon in physical pixels.
+     * @param spacingPx gap inserted before every icon except the first.
+     * @param iconColor requested ARGB foreground color.
+     */
     fun render(
         icons: List<NotificationIcon>,
         iconSizePx: Int,
@@ -45,6 +59,12 @@ class StatusBarIconView(context: Context) : LinearLayout(context) {
         null
     }
 
+    /**
+     * Rasterizes an app-provided drawable and recolors its non-transparent pixels.
+     *
+     * The returned bitmap becomes owned by [BitmapIconView] and is recycled when that child is
+     * detached. A `null` result leaves an empty slot rather than failing the entire icon row.
+     */
     private fun loadTintedBitmap(item: NotificationIcon, size: Int, color: Int): Bitmap? {
         val drawable = loadDrawable(item) ?: return null
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
@@ -66,6 +86,7 @@ class StatusBarIconView(context: Context) : LinearLayout(context) {
         return bitmap
     }
 
+    /** Minimal view that draws and owns exactly one pre-colored bitmap. */
     private class BitmapIconView(context: Context, private val bitmap: Bitmap?) : View(context) {
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
