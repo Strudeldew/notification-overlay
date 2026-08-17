@@ -3,7 +3,7 @@
     <string name="app_name">Notification Icons Overlay</string>
     <string name="notification_listener_label">Notification icon reader</string>
     <string name="accessibility_service_label">Status bar icon overlay</string>
-    <string name="accessibility_service_description">Shows active notification icons in a touch-through status-bar overlay. It checks which window is active so it can hide over Quick Settings, but does not inspect text or controls.</string>
+    <string name="accessibility_service_description">Shows active notification icons in a touch-through status-bar overlay. It checks which window is active so it can hide over Quick Settings, but does not inspect text or controls. Screenshot-based color detection is optional and disabled by default.</string>
     <string name="show_overlay">Show notification icon overlay</string>
     <string name="slider_value">%1$s: %2$d%3$s</string>
     <string name="generate_test_notification">Generate test notification</string>
@@ -14,4 +14,5 @@
     <string name="align_overlay_left">Align overlay to the left</string>
     <string name="show_silent_notifications">Show silent notifications</string>
     <string name="show_system_notifications">Show system notifications</string>
+    <string name="allow_screenshot_fallback">Allow screenshot fallback</string>
 </resources>

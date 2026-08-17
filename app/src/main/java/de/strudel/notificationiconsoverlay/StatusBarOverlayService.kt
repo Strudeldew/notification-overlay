@@ -3,14 +3,22 @@ package de.strudel.notificationiconsoverlay
 import android.accessibilityservice.AccessibilityService
 import android.annotation.SuppressLint
 import android.content.SharedPreferences
+import android.graphics.Bitmap
+import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.Display
 import android.view.Gravity
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import rikka.shizuku.Shizuku
+import java.util.concurrent.Executor
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 
 class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnSharedPreferenceChangeListener {
@@ -18,11 +26,27 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
     private lateinit var preferences: SharedPreferences
     private var overlayView: StatusBarIconView? = null
     private var systemUiPanelVisible = false
+    private var automaticIconColor = Color.WHITE
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val mainExecutor = Executor { command -> mainHandler.post(command) }
+    private val appearanceExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val appearanceQueryInFlight = AtomicBoolean(false)
+    private var appearanceRefreshPending = false
+    private var screenshotInFlight = false
     private val refreshSystemUiState = Runnable {
         val wasVisible = systemUiPanelVisible
         systemUiPanelVisible = isSystemUiPanelVisible()
         if (wasVisible != systemUiPanelVisible) updateOverlay()
+    }
+    private val refreshAutomaticColor = Runnable { queryAutomaticColor() }
+    private val shizukuBinderListener = Shizuku.OnBinderReceivedListener {
+        scheduleAutomaticColorRefresh(0L)
+    }
+    private val shizukuDeadListener = Shizuku.OnBinderDeadListener {
+        scheduleAutomaticColorRefresh(AUTOMATIC_COLOR_DELAY_MS)
+    }
+    private val shizukuPermissionListener = Shizuku.OnRequestPermissionResultListener { _, _ ->
+        scheduleAutomaticColorRefresh(0L)
     }
 
     private val notificationsChanged: () -> Unit = {
@@ -35,7 +59,12 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
         preferences = OverlayConfig.preferences(this)
         preferences.registerOnSharedPreferenceChangeListener(this)
         NotificationIconRepository.addListener(notificationsChanged)
+        automaticIconColor = OverlayConfig.manualIconColor(preferences)
+        Shizuku.addBinderReceivedListenerSticky(shizukuBinderListener)
+        Shizuku.addBinderDeadListener(shizukuDeadListener)
+        Shizuku.addRequestPermissionResultListener(shizukuPermissionListener)
         updateOverlay()
+        scheduleAutomaticColorRefresh(AUTOMATIC_COLOR_DELAY_MS)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -55,12 +84,30 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
             mainHandler.removeCallbacks(refreshSystemUiState)
             mainHandler.postDelayed(refreshSystemUiState, WINDOW_SETTLE_DELAY_MS)
         }
+
+        if (
+            event?.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED ||
+            event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+        ) {
+            scheduleAutomaticColorRefresh(AUTOMATIC_COLOR_DELAY_MS)
+        } else if (
+            event?.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED
+        ) {
+            // Some apps switch status-bar appearance while scrolling without changing windows.
+            scheduleAutomaticColorRefresh(AUTOMATIC_COLOR_SCROLL_DELAY_MS)
+        }
     }
 
     override fun onInterrupt() = Unit
 
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
         updateOverlay()
+        if (
+            key == OverlayConfig.KEY_ICON_COLOR_MODE ||
+            key == OverlayConfig.KEY_SCREENSHOT_FALLBACK_ENABLED
+        ) {
+            scheduleAutomaticColorRefresh(0L)
+        }
     }
 
     override fun onDestroy() {
@@ -69,6 +116,11 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
         }
         NotificationIconRepository.removeListener(notificationsChanged)
         mainHandler.removeCallbacks(refreshSystemUiState)
+        mainHandler.removeCallbacks(refreshAutomaticColor)
+        Shizuku.removeBinderReceivedListener(shizukuBinderListener)
+        Shizuku.removeBinderDeadListener(shizukuDeadListener)
+        Shizuku.removeRequestPermissionResultListener(shizukuPermissionListener)
+        appearanceExecutor.shutdownNow()
         removeOverlay()
         super.onDestroy()
     }
@@ -105,7 +157,7 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
             icons = icons,
             iconSizePx = iconSize,
             spacingPx = dp(OverlayConfig.spacingDp(preferences)),
-            iconColor = OverlayConfig.iconColor(preferences),
+            iconColor = OverlayConfig.iconColor(preferences, automaticIconColor),
         )
 
         val params = view.layoutParams as? WindowManager.LayoutParams ?: createLayoutParams()
@@ -158,6 +210,109 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
     private fun alignmentGravity(): Int =
         if (OverlayConfig.alignLeft(preferences)) Gravity.START else Gravity.END
 
+    private fun scheduleAutomaticColorRefresh(delayMillis: Long) {
+        if (!::preferences.isInitialized || OverlayConfig.colorMode(preferences) != OverlayConfig.COLOR_MODE_AUTO) {
+            return
+        }
+        mainHandler.removeCallbacks(refreshAutomaticColor)
+        if (appearanceQueryInFlight.get()) appearanceRefreshPending = true
+        mainHandler.postDelayed(refreshAutomaticColor, delayMillis)
+    }
+
+    private fun queryAutomaticColor() {
+        if (
+            OverlayConfig.colorMode(preferences) != OverlayConfig.COLOR_MODE_AUTO ||
+            !appearanceQueryInFlight.compareAndSet(false, true)
+        ) {
+            if (appearanceQueryInFlight.get()) appearanceRefreshPending = true
+            return
+        }
+
+        appearanceExecutor.execute {
+            val darkIcons = ShizukuStatusBarReader.readDarkIcons(this)
+            mainHandler.post {
+                appearanceQueryInFlight.set(false)
+                if (OverlayConfig.colorMode(preferences) != OverlayConfig.COLOR_MODE_AUTO) return@post
+                if (darkIcons != null) {
+                    applyAutomaticColor(if (darkIcons) Color.BLACK else Color.WHITE)
+                } else if (OverlayConfig.screenshotFallbackEnabled(preferences)) {
+                    sampleStatusBarBackground()
+                }
+                if (appearanceRefreshPending) {
+                    appearanceRefreshPending = false
+                    scheduleAutomaticColorRefresh(AUTOMATIC_COLOR_DELAY_MS)
+                }
+            }
+        }
+    }
+
+    private fun applyAutomaticColor(color: Int) {
+        if (automaticIconColor == color) return
+        automaticIconColor = color
+        updateOverlay()
+    }
+
+    private fun sampleStatusBarBackground() {
+        if (
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.R ||
+            screenshotInFlight ||
+            !OverlayConfig.screenshotFallbackEnabled(preferences)
+        ) return
+        screenshotInFlight = true
+        try {
+            takeScreenshot(
+                Display.DEFAULT_DISPLAY,
+                mainExecutor,
+                object : AccessibilityService.TakeScreenshotCallback {
+                    override fun onSuccess(screenshot: AccessibilityService.ScreenshotResult) {
+                        screenshotInFlight = false
+                        val hardwareBuffer = screenshot.hardwareBuffer
+                        val hardwareBitmap = Bitmap.wrapHardwareBuffer(hardwareBuffer, screenshot.colorSpace)
+                        val bitmap = try {
+                            hardwareBitmap?.copy(Bitmap.Config.ARGB_8888, false)
+                        } finally {
+                            hardwareBitmap?.recycle()
+                            hardwareBuffer.close()
+                        }
+                        if (bitmap != null && OverlayConfig.screenshotFallbackEnabled(preferences)) {
+                            val color = sampledContrastingColor(bitmap)
+                            bitmap.recycle()
+                            applyAutomaticColor(color)
+                        } else {
+                            bitmap?.recycle()
+                        }
+                    }
+
+                    override fun onFailure(errorCode: Int) {
+                        screenshotInFlight = false
+                        Log.d(TAG, "Status-bar screenshot unavailable: $errorCode")
+                    }
+                },
+            )
+        } catch (error: RuntimeException) {
+            screenshotInFlight = false
+            Log.w(TAG, "Could not sample the status-bar background", error)
+        }
+    }
+
+    private fun sampledContrastingColor(bitmap: Bitmap): Int {
+        val sampleHeight = minOf(statusBarHeight(), bitmap.height).coerceAtLeast(1)
+        val luminances = ArrayList<Double>(SCREENSHOT_SAMPLE_COLUMNS * SCREENSHOT_SAMPLE_ROWS)
+        for (column in 1..SCREENSHOT_SAMPLE_COLUMNS) {
+            val x = (bitmap.width * column / (SCREENSHOT_SAMPLE_COLUMNS + 1)).coerceIn(0, bitmap.width - 1)
+            for (row in 1..SCREENSHOT_SAMPLE_ROWS) {
+                val y = (sampleHeight * row / (SCREENSHOT_SAMPLE_ROWS + 1)).coerceIn(0, sampleHeight - 1)
+                val pixel = bitmap.getPixel(x, y)
+                luminances += 0.2126 * Color.red(pixel) +
+                    0.7152 * Color.green(pixel) +
+                    0.0722 * Color.blue(pixel)
+            }
+        }
+        luminances.sort()
+        val median = luminances[luminances.size / 2]
+        return if (median >= LIGHT_BACKGROUND_LUMINANCE) Color.BLACK else Color.WHITE
+    }
+
     private fun isSystemUiPanelVisible(): Boolean = windows.any { window ->
         if (window.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY) {
             return@any false
@@ -173,6 +328,11 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
         private const val TAG = "NotificationOverlay"
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
         private const val WINDOW_SETTLE_DELAY_MS = 40L
+        private const val AUTOMATIC_COLOR_DELAY_MS = 100L
+        private const val AUTOMATIC_COLOR_SCROLL_DELAY_MS = 300L
+        private const val SCREENSHOT_SAMPLE_COLUMNS = 11
+        private const val SCREENSHOT_SAMPLE_ROWS = 5
+        private const val LIGHT_BACKGROUND_LUMINANCE = 165.0
         private val SHADE_WINDOW_NAMES = listOf(
             "NotificationShade",
             "NotificationPanel",

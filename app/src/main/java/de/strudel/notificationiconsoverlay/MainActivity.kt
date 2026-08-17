@@ -25,17 +25,40 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
+import android.widget.Toast
+import rikka.shizuku.Shizuku
 import kotlin.math.roundToInt
 
 class MainActivity : Activity() {
     private lateinit var preferences: SharedPreferences
     private lateinit var notificationStatus: TextView
     private lateinit var accessibilityStatus: TextView
+    private lateinit var shizukuStatus: TextView
+
+    private val shizukuBinderListener = Shizuku.OnBinderReceivedListener {
+        if (::shizukuStatus.isInitialized) refreshShizukuStatus()
+    }
+    private val shizukuDeadListener = Shizuku.OnBinderDeadListener {
+        if (::shizukuStatus.isInitialized) refreshShizukuStatus()
+    }
+    private val shizukuPermissionListener = Shizuku.OnRequestPermissionResultListener { requestCode, _ ->
+        if (requestCode == REQUEST_SHIZUKU) refreshShizukuStatus()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         preferences = OverlayConfig.preferences(this)
+        Shizuku.addBinderReceivedListenerSticky(shizukuBinderListener)
+        Shizuku.addBinderDeadListener(shizukuDeadListener)
+        Shizuku.addRequestPermissionResultListener(shizukuPermissionListener)
         setContentView(buildContent())
+    }
+
+    override fun onDestroy() {
+        Shizuku.removeBinderReceivedListener(shizukuBinderListener)
+        Shizuku.removeBinderDeadListener(shizukuDeadListener)
+        Shizuku.removeRequestPermissionResultListener(shizukuPermissionListener)
+        super.onDestroy()
     }
 
     override fun onResume() {
@@ -68,7 +91,14 @@ class MainActivity : Activity() {
             explanation = "Needed only to place a touch-through icon row above the status bar.",
             buttonText = "Open accessibility settings",
         ) { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-        content.addView((accessibilityStatus.parent as View).withMargins(top = 12, bottom = 24))
+        content.addView((accessibilityStatus.parent as View).withMargins(top = 12))
+
+        shizukuStatus = permissionCard(
+            title = "3. Shizuku automatic color",
+            explanation = "Optional. Reads the foreground window's status-bar appearance without capturing the screen.",
+            buttonText = "Grant Shizuku access",
+        ) { requestShizukuPermission() }
+        content.addView((shizukuStatus.parent as View).withMargins(top = 12, bottom = 24))
 
         content.addView(sectionTitle("Overlay"))
         val enabled = Switch(this).apply {
@@ -156,23 +186,44 @@ class MainActivity : Activity() {
 
         content.addView(sectionTitle("Icon color").withMargins(top = 20))
         content.addView(text(
-            "Choose the tone that matches Sony's current status-bar icons.",
+            "Automatic uses Shizuku. Screenshot fallback is optional and off by default.",
             14f,
             color(R.color.text_secondary),
         ))
+        val selectedColorMode = OverlayConfig.colorMode(preferences)
         val tone = RadioGroup(this).apply {
-            orientation = RadioGroup.HORIZONTAL
-            addView(radio("Light", !preferences.getBoolean(OverlayConfig.KEY_DARK_ICONS, false), false))
-            addView(radio("Dark", preferences.getBoolean(OverlayConfig.KEY_DARK_ICONS, false), true))
+            orientation = RadioGroup.VERTICAL
+            addView(radio("Automatic", selectedColorMode == OverlayConfig.COLOR_MODE_AUTO, OverlayConfig.COLOR_MODE_AUTO))
+            addView(radio("Light icons", selectedColorMode == OverlayConfig.COLOR_MODE_LIGHT, OverlayConfig.COLOR_MODE_LIGHT))
+            addView(radio("Dark icons", selectedColorMode == OverlayConfig.COLOR_MODE_DARK, OverlayConfig.COLOR_MODE_DARK))
             setOnCheckedChangeListener { _, checkedId ->
                 val checked = findViewById<RadioButton>(checkedId)
-                preferences.edit().putBoolean(OverlayConfig.KEY_DARK_ICONS, checked.tag == true).apply()
+                preferences.edit().putString(OverlayConfig.KEY_ICON_COLOR_MODE, checked.tag as String).apply()
             }
         }
         content.addView(tone)
 
+        content.addView(Switch(this).apply {
+            text = getString(R.string.allow_screenshot_fallback)
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            isChecked = OverlayConfig.screenshotFallbackEnabled(preferences)
+            setPadding(0, dp(8), 0, dp(8))
+            setOnCheckedChangeListener { _: CompoundButton, checked: Boolean ->
+                preferences.edit()
+                    .putBoolean(OverlayConfig.KEY_SCREENSHOT_FALLBACK_ENABLED, checked)
+                    .apply()
+            }
+        })
         content.addView(text(
-            "The accessibility service checks which window is active so it can hide over the notification shade and Quick Settings. It does not inspect text or controls. The app has no internet permission and ignores its own notifications except for the test.",
+            "Opt in to an accessibility screenshot when Shizuku cannot determine the color. " +
+                "Android captures the display; the app reads only status-bar pixels, keeps no image, and sends nothing.",
+            13f,
+            color(R.color.text_secondary),
+        ))
+
+        content.addView(text(
+            "The accessibility service checks which window is active so it can hide over the notification shade and Quick Settings. Automatic color reads Window Manager through Shizuku. Without Shizuku, choose a manual color or explicitly enable screenshot fallback. The app has no internet permission and ignores its own notifications except for the test.",
             13f,
             color(R.color.text_secondary),
         ).withMargins(top = 24))
@@ -236,13 +287,13 @@ class MainActivity : Activity() {
         return row
     }
 
-    private fun radio(label: String, checked: Boolean, dark: Boolean) = RadioButton(this).apply {
+    private fun radio(label: String, checked: Boolean, mode: String) = RadioButton(this).apply {
         id = View.generateViewId()
         text = label
         textSize = 15f
         setTextColor(Color.WHITE)
         isChecked = checked
-        tag = dark
+        tag = mode
     }
 
     private fun refreshPermissionStatus() {
@@ -258,6 +309,45 @@ class MainActivity : Activity() {
         }
         showPermissionStatus(notificationStatus, notificationEnabled)
         showPermissionStatus(accessibilityStatus, isAccessibilityServiceEnabled())
+        refreshShizukuStatus()
+    }
+
+    private fun requestShizukuPermission() {
+        try {
+            when {
+                !Shizuku.pingBinder() -> Toast.makeText(
+                    this,
+                    "Start Shizuku first, then return to this app.",
+                    Toast.LENGTH_LONG,
+                ).show()
+                Shizuku.isPreV11() -> Toast.makeText(this, "This Shizuku version is too old.", Toast.LENGTH_LONG).show()
+                Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED -> refreshShizukuStatus()
+                Shizuku.shouldShowRequestPermissionRationale() -> Toast.makeText(
+                    this,
+                    "Permission was denied. Allow this app from Shizuku's app list.",
+                    Toast.LENGTH_LONG,
+                ).show()
+                else -> Shizuku.requestPermission(REQUEST_SHIZUKU)
+            }
+        } catch (_: RuntimeException) {
+            Toast.makeText(this, "Shizuku is not available.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun refreshShizukuStatus() {
+        val status = try {
+            when {
+                !Shizuku.pingBinder() -> "Not running"
+                Shizuku.isPreV11() -> "Unsupported Shizuku version"
+                Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED -> "Enabled"
+                else -> "Permission not granted"
+            }
+        } catch (_: RuntimeException) {
+            "Not available"
+        }
+        val enabled = status == "Enabled"
+        shizukuStatus.text = status
+        shizukuStatus.setTextColor(if (enabled) Color.rgb(116, 220, 153) else Color.rgb(255, 176, 102))
     }
 
     private fun generateTestNotification() {
@@ -325,5 +415,6 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQUEST_POST_NOTIFICATIONS = 100
+        private const val REQUEST_SHIZUKU = 101
     }
 }

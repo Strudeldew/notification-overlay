@@ -1,11 +1,13 @@
 package de.strudel.notificationiconsoverlay
 
 import android.content.Context
-import android.content.res.ColorStateList
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.drawable.Drawable
 import android.util.Log
 import android.view.Gravity
-import android.widget.ImageView
+import android.view.View
 import android.widget.LinearLayout
 
 class StatusBarIconView(context: Context) : LinearLayout(context) {
@@ -26,11 +28,8 @@ class StatusBarIconView(context: Context) : LinearLayout(context) {
         removeAllViews()
 
         icons.forEachIndexed { index, item ->
-            val image = ImageView(context).apply {
-                scaleType = ImageView.ScaleType.CENTER_INSIDE
-                imageTintList = ColorStateList.valueOf(iconColor)
+            val image = BitmapIconView(context, loadTintedBitmap(item, iconSizePx, iconColor)).apply {
                 contentDescription = item.packageName
-                setImageDrawable(loadDrawable(item))
             }
             val params = LayoutParams(iconSizePx, iconSizePx).apply {
                 if (index > 0) marginStart = spacingPx
@@ -46,7 +45,41 @@ class StatusBarIconView(context: Context) : LinearLayout(context) {
         null
     }
 
+    private fun loadTintedBitmap(item: NotificationIcon, size: Int, color: Int): Bitmap? {
+        val drawable = loadDrawable(item) ?: return null
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        drawable.setBounds(0, 0, size, size)
+        drawable.draw(Canvas(bitmap))
+
+        // ImageView/drawable tint APIs are ignored by some Sony notification drawables.
+        // Recolor the already-rasterized alpha mask so the compositor receives final pixels.
+        val pixels = IntArray(size * size)
+        bitmap.getPixels(pixels, 0, size, 0, 0, size, size)
+        // Pure black is treated as transparent by the status-bar accessibility surface on
+        // some Sony builds. Use Android's near-black system-icon tone instead.
+        val effectiveColor = if (color == Color.BLACK) DARK_ICON_COLOR else color
+        val rgb = effectiveColor and 0x00ffffff
+        pixels.indices.forEach { index ->
+            pixels[index] = (Color.alpha(pixels[index]) shl 24) or rgb
+        }
+        bitmap.setPixels(pixels, 0, size, 0, 0, size, size)
+        return bitmap
+    }
+
+    private class BitmapIconView(context: Context, private val bitmap: Bitmap?) : View(context) {
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            bitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+        }
+
+        override fun onDetachedFromWindow() {
+            bitmap?.recycle()
+            super.onDetachedFromWindow()
+        }
+    }
+
     companion object {
         private const val TAG = "NotificationOverlay"
+        private const val DARK_ICON_COLOR = 0xff202124.toInt()
     }
 }

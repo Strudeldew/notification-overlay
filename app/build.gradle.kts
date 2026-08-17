@@ -27,3 +27,10 @@ android {
         }
     }
 }
+
+dependencies {
+    val shizukuVersion = "13.1.5"
+    implementation("dev.rikka.shizuku:api:$shizukuVersion")
+    implementation("dev.rikka.shizuku:provider:$shizukuVersion")
+    testImplementation("junit:junit:4.13.2")
+}
