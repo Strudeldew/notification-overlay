@@ -6,12 +6,15 @@ import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.Display
 import android.view.Gravity
+import android.view.WindowInsets
+import android.view.WindowInsetsAnimation
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import rikka.shizuku.Shizuku
@@ -26,6 +29,7 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
     private lateinit var preferences: SharedPreferences
     private var overlayView: StatusBarIconView? = null
     private var systemUiPanelVisible = false
+    private var statusBarVisible = true
     private var automaticIconColor = Color.WHITE
     private val mainHandler = Handler(Looper.getMainLooper())
     private val mainExecutor = Executor { command -> mainHandler.post(command) }
@@ -36,6 +40,7 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
     private val refreshSystemUiState = Runnable {
         val wasVisible = systemUiPanelVisible
         systemUiPanelVisible = isSystemUiPanelVisible()
+        setStatusBarVisibility(currentStatusBarVisibility())
         if (wasVisible != systemUiPanelVisible) updateOverlay()
     }
     private val refreshAutomaticColor = Runnable { queryAutomaticColor() }
@@ -56,6 +61,7 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
     override fun onServiceConnected() {
         super.onServiceConnected()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        statusBarVisible = currentStatusBarVisibility()
         preferences = OverlayConfig.preferences(this)
         preferences.registerOnSharedPreferenceChangeListener(this)
         NotificationIconRepository.addListener(notificationsChanged)
@@ -143,6 +149,27 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
 
         val view = overlayView ?: StatusBarIconView(this).also { newView ->
             overlayView = newView
+            newView.setOnApplyWindowInsetsListener { _, insets ->
+                setStatusBarVisibility(statusBarVisibility(insets))
+                insets
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                newView.setWindowInsetsAnimationCallback(
+                    object : WindowInsetsAnimation.Callback(DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
+                        override fun onProgress(
+                            insets: WindowInsets,
+                            runningAnimations: MutableList<WindowInsetsAnimation>,
+                        ): WindowInsets {
+                            setStatusBarVisibility(statusBarVisibility(insets))
+                            return insets
+                        }
+
+                        override fun onEnd(animation: WindowInsetsAnimation) {
+                            setStatusBarVisibility(currentStatusBarVisibility())
+                        }
+                    },
+                )
+            }
             try {
                 windowManager.addView(newView, createLayoutParams())
             } catch (error: RuntimeException) {
@@ -165,6 +192,7 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
         params.x = dp(OverlayConfig.edgeInsetDp(preferences))
         params.gravity = Gravity.TOP or alignmentGravity()
         windowManager.updateViewLayout(view, params)
+        view.alpha = if (statusBarVisible) 1f else 0f
     }
 
     private fun createLayoutParams() = WindowManager.LayoutParams(
@@ -209,6 +237,47 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
 
     private fun alignmentGravity(): Int =
         if (OverlayConfig.alignLeft(preferences)) Gravity.START else Gravity.END
+
+    private fun currentStatusBarVisibility(): Boolean =
+        if (isStatusBarAccessibilityWindowVisible()) {
+            true
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            statusBarVisibility(windowManager.currentWindowMetrics.windowInsets)
+        } else {
+            // The attached view's first insets dispatch will provide the authoritative value.
+            true
+        }
+
+    private fun isStatusBarAccessibilityWindowVisible(): Boolean {
+        val displayWidth = resources.displayMetrics.widthPixels
+        val maximumStatusBarHeight = statusBarHeight() * 2
+        val bounds = Rect()
+        return windows.any { window ->
+            if (window.type != android.view.accessibility.AccessibilityWindowInfo.TYPE_SYSTEM) {
+                return@any false
+            }
+            window.getBoundsInScreen(bounds)
+            bounds.top == 0 &&
+                bounds.height() in 1..maximumStatusBarHeight &&
+                bounds.width() >= displayWidth * 9 / 10
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun statusBarVisibility(insets: WindowInsets): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            insets.isVisible(WindowInsets.Type.statusBars())
+        } else {
+            insets.systemWindowInsetTop > 0
+        }
+
+    private fun setStatusBarVisibility(visible: Boolean) {
+        if (statusBarVisible == visible) return
+        statusBarVisible = visible
+
+        // Keep the window attached so it continues receiving insets when immersive mode ends.
+        overlayView?.alpha = if (visible) 1f else 0f
+    }
 
     private fun scheduleAutomaticColorRefresh(delayMillis: Long) {
         if (!::preferences.isInitialized || OverlayConfig.colorMode(preferences) != OverlayConfig.COLOR_MODE_AUTO) {

@@ -18,6 +18,7 @@ A small, no-root Android app that mirrors active notification `smallIcon` into a
 - Can include or exclude notifications Android ranks as silent.
 - Can include or exclude notifications posted by system apps.
 - Automatically hides the overlay while the notification shade or Quick Settings is active.
+- Follows status-bar visibility during immersive video playback, including transient swipe-to-reveal bars.
 - Includes a 30-second test notification for checking placement and tint.
 - Ignores this app's own notifications except for the explicit test notification, and declares no internet permission.
 - Keeps the overlay non-focusable and non-touchable, so status-bar gestures pass through.
