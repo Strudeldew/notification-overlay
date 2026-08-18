@@ -33,14 +33,14 @@ Open the root directory in Android Studio, let Gradle sync, and build the `app` 
 
 The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 
-## Set up on the phone
+## Releases and Obtainium
 
-1. Install the APK and open **Notification Icons Overlay**.
-2. Open **Notification access** and enable **Notification icon reader**.
-3. Open **Accessibility settings** and enable **Status bar icon overlay**.
-4. For automatic icon color, install and start [Shizuku](https://shizuku.rikka.app/guide/setup/), then grant this app access from its setup screen. Without Shizuku, select a manual icon color or explicitly opt in to **Allow screenshot fallback**.
-5. Hide the unwanted stock status icons with [Essentials](https://github.com/sameerasw/essentials), then tune count, spacing, size, inset, and icon color in this app.
+Signed release APKs are published automatically through GitHub Actions. Obtainium can track them directly from this repository:
 
-The accessibility service requests interactive-window access so it can check whether SystemUI owns the active window and hide the overlay over the notification shade or Quick Settings. It does not traverse view trees, read text, or interact with controls. In automatic color mode, the app asks Window Manager for the foreground window's system-bar appearance through Shizuku.
+```text
+https://github.com/Strudeldew/notification-overlay
+```
 
-**Allow screenshot fallback** is off by default. If the user explicitly enables it and Shizuku is unavailable or its Window Manager output is not recognized, Android's accessibility API captures the display. The app reads only pixels in the status-bar area, immediately releases the in-memory image, does not save it, and has no internet permission. Secure windows may block capture. Android can suppress accessibility overlays on secure system screens, and OEM power management may require excluding the app from battery optimization if either service is stopped.
+Paste that URL into **Add App** in Obtainium and keep **GitHub** as the source. Each stable GitHub release contains one universal APK named `notification-icons-overlay-VERSION.apk` and a matching SHA-256 checksum.
+
+After installing, follow the [phone setup guide](docs/SETUP.md) to grant the required access and configure the overlay.
