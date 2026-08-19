@@ -1,6 +1,6 @@
 # Notification Icons Overlay
 
-A small, no-root Android app that mirrors active notification `smallIcon` into a touch-through accessibility overlay at the top-right of the status bar. It is intended for Sony Xperia devices where SystemUI limits the number of visible notification icons and the stock icons can be hidden separately with [Essentials](https://github.com/sameerasw/essentials).
+A small, no-root Android app that mirrors active notification `smallIcon` into a touch-through accessibility overlay at the top-right of the status bar. It is intended for Sony Xperia devices where SystemUI limits the number of visible notification icons.
 
 > [!IMPORTANT]
 > Most of this project's code was generated with AI assistance. It has been built and linted, but users and contributors should independently review and test it before relying on it.
@@ -13,6 +13,7 @@ A small, no-root Android app that mirrors active notification `smallIcon` into a
 - Draws 4–15 icons in a `TYPE_ACCESSIBILITY_OVERLAY` above the status bar.
 - Lets you adjust icon count, spacing, size, edge inset, and icon tint.
 - Automatically matches dark/light status-bar icons through Shizuku.
+- Hides SystemUI's original notification icons through Shizuku by default, without hiding the clock or system icons; this can be disabled when another tool already handles it.
 - Offers an optional screenshot fallback that is disabled by default and requires explicit opt-in.
 - Can align the icon row to either the left or right edge.
 - Can include or exclude notifications Android ranks as silent.

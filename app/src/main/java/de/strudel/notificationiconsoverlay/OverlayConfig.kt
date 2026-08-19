@@ -21,6 +21,7 @@ object OverlayConfig {
     const val KEY_DARK_ICONS = "dark_icons"
     const val KEY_ICON_COLOR_MODE = "icon_color_mode"
     const val KEY_SCREENSHOT_FALLBACK_ENABLED = "screenshot_fallback_enabled"
+    const val KEY_HIDE_STOCK_NOTIFICATION_ICONS = "hide_stock_notification_icons"
     const val KEY_ALIGN_LEFT = "align_left"
     const val KEY_SHOW_SILENT = "show_silent"
     const val KEY_SHOW_SYSTEM = "show_system"
@@ -30,6 +31,7 @@ object OverlayConfig {
     const val DEFAULT_ICON_SIZE_DP = 18
     const val DEFAULT_EDGE_INSET_DP = 4
     const val DEFAULT_SCREENSHOT_FALLBACK_ENABLED = false
+    const val DEFAULT_HIDE_STOCK_NOTIFICATION_ICONS = true
 
     const val COLOR_MODE_AUTO = "auto"
     const val COLOR_MODE_LIGHT = "light"
@@ -79,6 +81,9 @@ object OverlayConfig {
      */
     fun screenshotFallbackEnabled(prefs: SharedPreferences) =
         prefs.getBoolean(KEY_SCREENSHOT_FALLBACK_ENABLED, DEFAULT_SCREENSHOT_FALLBACK_ENABLED)
+    /** Returns whether the user opted out of hiding SystemUI's original notification icons. */
+    fun hideStockNotificationIcons(prefs: SharedPreferences) =
+        prefs.getBoolean(KEY_HIDE_STOCK_NOTIFICATION_ICONS, DEFAULT_HIDE_STOCK_NOTIFICATION_ICONS)
     fun alignLeft(prefs: SharedPreferences) = prefs.getBoolean(KEY_ALIGN_LEFT, true)
     fun showSilent(prefs: SharedPreferences) = prefs.getBoolean(KEY_SHOW_SILENT, true)
     fun showSystem(prefs: SharedPreferences) = prefs.getBoolean(KEY_SHOW_SYSTEM, true)

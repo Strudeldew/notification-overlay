@@ -56,12 +56,14 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
     private val refreshAutomaticColor = Runnable { queryAutomaticColor() }
     private val shizukuBinderListener = Shizuku.OnBinderReceivedListener {
         scheduleAutomaticColorRefresh(0L)
+        StockNotificationIconController.reapplyIfEnabled(this)
     }
     private val shizukuDeadListener = Shizuku.OnBinderDeadListener {
         scheduleAutomaticColorRefresh(AUTOMATIC_COLOR_DELAY_MS)
     }
     private val shizukuPermissionListener = Shizuku.OnRequestPermissionResultListener { _, _ ->
         scheduleAutomaticColorRefresh(0L)
+        StockNotificationIconController.reapplyIfEnabled(this)
     }
 
     private val notificationsChanged: () -> Unit = {
@@ -123,6 +125,16 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
             key == OverlayConfig.KEY_SCREENSHOT_FALLBACK_ENABLED
         ) {
             scheduleAutomaticColorRefresh(0L)
+        }
+        if (key == OverlayConfig.KEY_HIDE_STOCK_NOTIFICATION_ICONS) {
+            StockNotificationIconController.setHidden(
+                this,
+                OverlayConfig.hideStockNotificationIcons(preferences),
+            ) { result ->
+                if (!result.successful) {
+                    Log.w(TAG, result.message ?: "Could not update stock notification icons.")
+                }
+            }
         }
     }
 

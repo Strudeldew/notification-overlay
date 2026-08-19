@@ -25,6 +25,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    buildFeatures {
+        aidl = true
+    }
+
     signingConfigs {
         create("release") {
             providers.environmentVariable("ANDROID_SIGNING_KEYSTORE").orNull?.let {

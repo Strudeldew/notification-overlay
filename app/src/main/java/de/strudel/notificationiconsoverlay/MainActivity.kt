@@ -44,12 +44,16 @@ class MainActivity : Activity() {
 
     private val shizukuBinderListener = Shizuku.OnBinderReceivedListener {
         if (::shizukuStatus.isInitialized) refreshShizukuStatus()
+        StockNotificationIconController.reapplyIfEnabled(this)
     }
     private val shizukuDeadListener = Shizuku.OnBinderDeadListener {
         if (::shizukuStatus.isInitialized) refreshShizukuStatus()
     }
     private val shizukuPermissionListener = Shizuku.OnRequestPermissionResultListener { requestCode, _ ->
-        if (requestCode == REQUEST_SHIZUKU) refreshShizukuStatus()
+        if (requestCode == REQUEST_SHIZUKU) {
+            refreshShizukuStatus()
+            StockNotificationIconController.reapplyIfEnabled(this)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -102,8 +106,8 @@ class MainActivity : Activity() {
         content.addView((accessibilityStatus.parent as View).withMargins(top = 12))
 
         shizukuStatus = permissionCard(
-            title = "3. Shizuku automatic color",
-            explanation = "Optional. Reads the foreground window's status-bar appearance without capturing the screen.",
+            title = "3. Shizuku integration",
+            explanation = "Optional. Enables automatic color and hiding Android's original notification icons.",
             buttonText = "Grant Shizuku access",
         ) { requestShizukuPermission() }
         content.addView((shizukuStatus.parent as View).withMargins(top = 12, bottom = 24))
@@ -120,6 +124,44 @@ class MainActivity : Activity() {
             }
         }
         content.addView(enabled)
+
+        var changingStockIconToggleProgrammatically = false
+        val hideStockNotificationIcons = Switch(this).apply {
+            text = getString(R.string.hide_stock_notification_icons)
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            isChecked = OverlayConfig.hideStockNotificationIcons(preferences)
+            setPadding(0, dp(8), 0, dp(8))
+            setOnCheckedChangeListener { button: CompoundButton, checked: Boolean ->
+                if (changingStockIconToggleProgrammatically) return@setOnCheckedChangeListener
+                button.isEnabled = false
+                StockNotificationIconController.setHidden(this@MainActivity, checked) { result ->
+                    button.isEnabled = true
+                    if (result.successful) {
+                        preferences.edit()
+                            .putBoolean(OverlayConfig.KEY_HIDE_STOCK_NOTIFICATION_ICONS, checked)
+                            .apply()
+                    } else {
+                        changingStockIconToggleProgrammatically = true
+                        button.isChecked = !checked
+                        changingStockIconToggleProgrammatically = false
+                        Toast.makeText(
+                            this@MainActivity,
+                            result.message ?: "Could not change the stock notification icons.",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
+            }
+        }
+        content.addView(hideStockNotificationIcons)
+        content.addView(text(
+            "Uses Shizuku to hide Android's original notification icons while keeping Wi-Fi, " +
+                "battery, clock, and the notification shade available. Turn this off if another " +
+                "tool already hides them.",
+            13f,
+            color(R.color.text_secondary),
+        ).withMargins(bottom = 8))
 
         content.addView(Switch(this).apply {
             text = getString(R.string.align_overlay_left)
@@ -231,7 +273,7 @@ class MainActivity : Activity() {
         ))
 
         content.addView(text(
-            "The accessibility service checks which window is active so it can hide over the notification shade and Quick Settings. Automatic color reads Window Manager through Shizuku. Without Shizuku, choose a manual color or explicitly enable screenshot fallback. The app has no internet permission and ignores its own notifications except for the test.",
+            "The accessibility service checks which window is active so it can hide over the notification shade and Quick Settings. Shizuku provides automatic color and optional stock notification-icon control. Without Shizuku, choose a manual color or explicitly enable screenshot fallback. The app has no internet permission and ignores its own notifications except for the test.",
             13f,
             color(R.color.text_secondary),
         ).withMargins(top = 24))
