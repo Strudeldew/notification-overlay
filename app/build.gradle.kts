@@ -1,5 +1,14 @@
+import java.util.Properties
+
 plugins {
   id("com.android.application")
+}
+
+val signingProperties = Properties().apply {
+  val propertiesFile = rootProject.file("keystore.properties")
+  if (propertiesFile.isFile) {
+    propertiesFile.inputStream().use(::load)
+  }
 }
 
 val releaseVersionCode = providers.gradleProperty("releaseVersionCode")
@@ -37,13 +46,15 @@ android()
   {
     create("release")
     {
-      providers.environmentVariable("ANDROID_SIGNING_KEYSTORE").orNull?.let()
-      {
-        storeFile = file(it)
-      }
+      val keystorePath = providers.environmentVariable("ANDROID_SIGNING_KEYSTORE").orNull
+        ?: signingProperties.getProperty("storeFile")
+      keystorePath?.let { storeFile = rootProject.file(it) }
       storePassword = providers.environmentVariable("ANDROID_SIGNING_STORE_PASSWORD").orNull
+        ?: signingProperties.getProperty("storePassword")
       keyAlias = providers.environmentVariable("ANDROID_SIGNING_KEY_ALIAS").orNull
+        ?: signingProperties.getProperty("keyAlias")
       keyPassword = providers.environmentVariable("ANDROID_SIGNING_KEY_PASSWORD").orNull
+        ?: signingProperties.getProperty("keyPassword")
     }
   }
 
