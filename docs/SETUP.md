@@ -26,6 +26,28 @@ The accessibility service requests interactive-window access so it can check whe
 
 In automatic color mode, the app asks Window Manager for the foreground window's system-bar appearance through Shizuku. The same Shizuku grant is used for the optional stock notification-icon control.
 
+## Sony Xperia Specific color guide
+
+These results were measured on a Sony Xperia XQ-EC54 running Android 16, firmware `69.2.A.4.110` (security patch `2026-08-01`). They describe colors drawn into this app's accessibility-overlay bitmap; other Xperia models or firmware may behave differently.
+
+The Xperia compositor changes some requested RGB values after the app has rendered them:
+
+| Requested color group | Observed Xperia result |
+| --- | --- |
+| Exact dark grays from `#000000` through `#7F7F7F` | Forced to white. Tested values included `#000000`, `#010101`, `#101010`, `#202020`, `#676767`, and `#7F7F7F`. |
+| Exact grays from `#808080` through `#FFFFFF` | Rendered at the requested gray level. `#FFFFFF` naturally remains white. |
+| Near-neutral off-grays | Rendered correctly, including `#000001`, `#010102`, `#202021`, `#202124`, `#676768`, `#7F7F80`, `#808081`, and `#A0A0A1`. |
+| Dark saturated colors whose largest channel is below `0x80` | Commonly brightened to white or a pale tint instead of staying dark. This was reproduced with single-channel values from `0x02` through `0x7F` and mixed colors such as `#7F0100`, `#7F4000`, `#40607F`, `#127F40`, and `#7F007F`. |
+| Chromatic colors with at least one channel at or above `0x80` | Rendered correctly in the tested palette. Examples include `#800100`, `#804000`, `#406080`, `#128040`, `#800080`, and the full-intensity RGB/CMY colors. |
+
+No tested full-alpha color became transparent. Exact black was rendered white; near-black off-grays such as `#000001` and `#020201` remained visibly black. This means a one-channel offset is a practical, visually imperceptible workaround for dark grayscale values:
+
+- use `#000001` instead of `#000000`;
+- use `#202124` for a near-black system-icon tone;
+- use `#676768` instead of `#676767`.
+
+These are measured examples, not a guaranteed formula for every RGB value. When choosing an untested dark chromatic color, verify it on the target Xperia firmware.
+
 ## Screenshot fallback
 
 **Allow screenshot fallback** is off by default. If the user explicitly enables it and Shizuku is unavailable or its Window Manager output is not recognized, Android's accessibility API captures the display.
