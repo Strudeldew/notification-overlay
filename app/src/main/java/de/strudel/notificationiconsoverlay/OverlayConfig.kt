@@ -25,6 +25,10 @@ object OverlayConfig {
     const val KEY_ALIGN_LEFT = "align_left"
     const val KEY_SHOW_SILENT = "show_silent"
     const val KEY_SHOW_SYSTEM = "show_system"
+    const val KEY_DARK_ICON_COLOR = "dark_icon_color"
+    const val KEY_LIGHT_ICON_COLOR = "light_icon_color"
+    const val KEY_CUSTOM_DARK_ICON_COLOR_ENABLED = "custom_dark_icon_color_enabled"
+    const val KEY_CUSTOM_LIGHT_ICON_COLOR_ENABLED = "custom_light_icon_color_enabled"
 
     const val DEFAULT_MAX_ICONS = 7
     const val DEFAULT_SPACING_DP = 2
@@ -66,12 +70,12 @@ object OverlayConfig {
 
     /** Returns the manual color, using white as the safe initial color for Automatic mode. */
     fun manualIconColor(prefs: SharedPreferences) =
-        if (colorMode(prefs) == COLOR_MODE_DARK) Color.BLACK else Color.WHITE
+        if (colorMode(prefs) == COLOR_MODE_DARK) prefs.getInt(KEY_DARK_ICON_COLOR, Color.BLACK) else prefs.getInt(KEY_LIGHT_ICON_COLOR, Color.WHITE)
 
     /** Resolves the final requested color from the selected mode and latest automatic result. */
     fun iconColor(prefs: SharedPreferences, automaticColor: Int) = when (colorMode(prefs)) {
-        COLOR_MODE_DARK -> Color.BLACK
-        COLOR_MODE_LIGHT -> Color.WHITE
+        COLOR_MODE_DARK -> darkIconColor(prefs)
+        COLOR_MODE_LIGHT -> lightIconColor(prefs)
         else -> automaticColor
     }
     /**
@@ -87,4 +91,8 @@ object OverlayConfig {
     fun alignLeft(prefs: SharedPreferences) = prefs.getBoolean(KEY_ALIGN_LEFT, true)
     fun showSilent(prefs: SharedPreferences) = prefs.getBoolean(KEY_SHOW_SILENT, true)
     fun showSystem(prefs: SharedPreferences) = prefs.getBoolean(KEY_SHOW_SYSTEM, true)
+    fun darkIconColor(prefs: SharedPreferences) = prefs.getInt(KEY_DARK_ICON_COLOR, Color.BLACK)
+    fun lightIconColor(prefs: SharedPreferences) = prefs.getInt(KEY_LIGHT_ICON_COLOR, Color.WHITE)
+    fun customDarkIconColorEnabled(prefs: SharedPreferences) = prefs.getBoolean(KEY_CUSTOM_DARK_ICON_COLOR_ENABLED, false)
+    fun customLightIconColorEnabled(prefs: SharedPreferences) = prefs.getBoolean(KEY_CUSTOM_LIGHT_ICON_COLOR_ENABLED, false)
 }

@@ -14,10 +14,13 @@ import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
 import android.widget.CompoundButton
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -272,6 +275,66 @@ class MainActivity : Activity() {
             color(R.color.text_secondary),
         ))
 
+        content.addView(sectionTitle("Dark icon color").withMargins(top = 20))
+        val darkColorEdit = hexColorEditText(
+            hint = "#000000",
+            initial = OverlayConfig.darkIconColor(preferences),
+            visible = OverlayConfig.customDarkIconColorEnabled(preferences),
+            key = OverlayConfig.KEY_DARK_ICON_COLOR,
+        )
+        content.addView(Switch(this).apply {
+            text = "Custom dark icon color"
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            isChecked = OverlayConfig.customDarkIconColorEnabled(preferences)
+            setPadding(0, dp(8), 0, dp(8))
+            setOnCheckedChangeListener { _: CompoundButton, checked: Boolean ->
+                preferences.edit().putBoolean(OverlayConfig.KEY_CUSTOM_DARK_ICON_COLOR_ENABLED, checked).apply()
+                if (checked) {
+                    darkColorEdit.visibility = View.VISIBLE
+                } else {
+                    preferences.edit().putInt(OverlayConfig.KEY_DARK_ICON_COLOR, Color.BLACK).apply()
+                    darkColorEdit.visibility = View.GONE
+                }
+            }
+        })
+        content.addView(text(
+            "Used for status bar icons when the background is light or dark icon mode is selected.",
+            13f,
+            color(R.color.text_secondary),
+        ))
+        content.addView(darkColorEdit.withMargins(top = 8))
+
+        content.addView(sectionTitle("Light icon color").withMargins(top = 20))
+        val lightColorEdit = hexColorEditText(
+            hint = "#FFFFFF",
+            initial = OverlayConfig.lightIconColor(preferences),
+            visible = OverlayConfig.customLightIconColorEnabled(preferences),
+            key = OverlayConfig.KEY_LIGHT_ICON_COLOR,
+        )
+        content.addView(Switch(this).apply {
+            text = "Custom light icon color"
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            isChecked = OverlayConfig.customLightIconColorEnabled(preferences)
+            setPadding(0, dp(8), 0, dp(8))
+            setOnCheckedChangeListener { _: CompoundButton, checked: Boolean ->
+                preferences.edit().putBoolean(OverlayConfig.KEY_CUSTOM_LIGHT_ICON_COLOR_ENABLED, checked).apply()
+                if (checked) {
+                    lightColorEdit.visibility = View.VISIBLE
+                } else {
+                    preferences.edit().putInt(OverlayConfig.KEY_LIGHT_ICON_COLOR, Color.WHITE).apply()
+                    lightColorEdit.visibility = View.GONE
+                }
+            }
+        })
+        content.addView(text(
+            "Used for status bar icons when the background is dark or light icon mode is selected.",
+            13f,
+            color(R.color.text_secondary),
+        ))
+        content.addView(lightColorEdit.withMargins(top = 8))
+
         content.addView(text(
             "The accessibility service checks which window is active so it can hide over the notification shade and Quick Settings. Shizuku provides automatic color and optional stock notification-icon control. Without Shizuku, choose a manual color or explicitly enable screenshot fallback. The app has no internet permission and ignores its own notifications except for the test.",
             13f,
@@ -283,6 +346,29 @@ class MainActivity : Activity() {
             addView(content)
         }
     }
+
+    /** Builds a hex-color input that persists valid `#RRGGBB` values to [key]. */
+    private fun hexColorEditText(hint: String, initial: Int, visible: Boolean, key: String) =
+        EditText(this).apply {
+            this.hint = hint
+            setTextColor(Color.WHITE)
+            setHintTextColor(color(R.color.text_secondary))
+            setBackgroundResource(R.drawable.edit_text_background)
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            setText(String.format("#%06X", 0xFFFFFF and initial))
+            visibility = if (visible) View.VISIBLE else View.GONE
+            addTextChangedListener(object : TextWatcher {
+                override fun afterTextChanged(s: Editable?) {
+                    val colorString = s.toString()
+                    if (colorString.matches(Regex("^#[A-Fa-f0-9]{6}$"))) {
+                        preferences.edit().putInt(key, Color.parseColor(colorString)).apply()
+                    }
+                }
+
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            })
+        }
 
     /**
      * Builds one setup card and returns its status label.
