@@ -16,8 +16,11 @@ import android.os.Bundle
 import android.provider.Settings
 import android.text.Editable
 import android.text.TextWatcher
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.view.Gravity
 import android.view.View
+import android.view.WindowInsets
 import android.widget.Button
 import android.widget.CompoundButton
 import android.widget.EditText
@@ -90,6 +93,14 @@ class MainActivity : Activity()
   /** Builds the complete scrollable settings screen for the current preference values. */
   private fun buildContent(): View
   {
+    val scrollView = ScrollView(this).apply()
+    {
+      setBackgroundColor(color(R.color.page_background))
+      isFillViewport = true
+      clipToPadding = false
+    }
+    configureImeScrolling(scrollView)
+
     val content = LinearLayout(this).apply()
     {
       orientation = LinearLayout.VERTICAL
@@ -296,6 +307,7 @@ class MainActivity : Activity()
 
     content.addView(sectionTitle("Dark icon color").withMargins(top = 20))
     val darkColorEdit = hexColorEditText(
+      scrollView = scrollView,
       hint = "#000000",
       initial = OverlayConfig.darkIconColor(preferences),
       visible = OverlayConfig.customDarkIconColorEnabled(preferences),
@@ -329,6 +341,7 @@ class MainActivity : Activity()
 
     content.addView(sectionTitle("Light icon color").withMargins(top = 20))
     val lightColorEdit = hexColorEditText(
+      scrollView = scrollView,
       hint = "#FFFFFF",
       initial = OverlayConfig.lightIconColor(preferences),
       visible = OverlayConfig.customLightIconColorEnabled(preferences),
@@ -366,24 +379,36 @@ class MainActivity : Activity()
       color(R.color.text_secondary),
     ).withMargins(top = 24))
 
-    return ScrollView(this).apply()
-    {
-      setBackgroundColor(color(R.color.page_background))
-      addView(content)
-    }
+    scrollView.addView(content)
+    return scrollView
   }
 
   /** Builds a hex-color input that persists valid `#RRGGBB` values to [key]. */
-  private fun hexColorEditText(hint: String, initial: Int, visible: Boolean, key: String) =
+  private fun hexColorEditText(scrollView: ScrollView, hint: String, initial: Int, visible: Boolean, key: String) =
     EditText(this).apply()
     {
       this.hint = hint
       setTextColor(Color.WHITE)
       setHintTextColor(color(R.color.text_secondary))
       setBackgroundResource(R.drawable.edit_text_background)
+      setSingleLine(true)
+      imeOptions = EditorInfo.IME_ACTION_DONE
       setPadding(dp(8), dp(8), dp(8), dp(8))
       setText(String.format("#%06X", 0xFFFFFF and initial))
       visibility = if (visible) View.VISIBLE else View.GONE
+      setOnFocusChangeListener { view, hasFocus ->
+        if (!hasFocus) return@setOnFocusChangeListener
+        scrollView.postDelayed({ revealFocusedEditor(scrollView, view) }, IME_SCROLL_DELAY_MS)
+      }
+      setOnEditorActionListener { _, actionId, _ ->
+        if (actionId != EditorInfo.IME_ACTION_DONE && actionId != EditorInfo.IME_ACTION_UNSPECIFIED) {
+          return@setOnEditorActionListener false
+        }
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        imm?.hideSoftInputFromWindow(windowToken, 0)
+        clearFocus()
+        true
+      }
       addTextChangedListener(object : TextWatcher
       {
         override fun afterTextChanged(s: Editable?)
@@ -399,6 +424,25 @@ class MainActivity : Activity()
         override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
       })
     }
+
+  /** Adds scrollable space for edge-to-edge keyboards on Android 11 and newer. */
+  private fun configureImeScrolling(scrollView: ScrollView)
+  {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+    scrollView.setOnApplyWindowInsetsListener { view, insets ->
+      val imeBottom = insets.getInsets(WindowInsets.Type.ime()).bottom
+      view.setPadding(view.paddingLeft, view.paddingTop, view.paddingRight, imeBottom)
+      if (imeBottom > 0) view.post { revealFocusedEditor(scrollView, currentFocus) }
+      insets
+    }
+  }
+
+  /** Scrolls the focused editor above the keyboard after the viewport has settled. */
+  private fun revealFocusedEditor(scrollView: ScrollView, focusedView: View?)
+  {
+    if (focusedView !is EditText) return
+    scrollView.smoothScrollTo(0, focusedView.bottom + dp(24))
+  }
 
   /**
    * Builds one setup card and returns its status label.
@@ -640,5 +684,6 @@ class MainActivity : Activity()
   {
     private const val REQUEST_POST_NOTIFICATIONS = 100
     private const val REQUEST_SHIZUKU = 101
+    private const val IME_SCROLL_DELAY_MS = 300L
   }
 }

@@ -134,7 +134,11 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
     updateOverlay()
     if (
       key == OverlayConfig.KEY_ICON_COLOR_MODE ||
-      key == OverlayConfig.KEY_SCREENSHOT_FALLBACK_ENABLED
+      key == OverlayConfig.KEY_SCREENSHOT_FALLBACK_ENABLED ||
+      key == OverlayConfig.KEY_DARK_ICON_COLOR ||
+      key == OverlayConfig.KEY_LIGHT_ICON_COLOR ||
+      key == OverlayConfig.KEY_CUSTOM_DARK_ICON_COLOR_ENABLED ||
+      key == OverlayConfig.KEY_CUSTOM_LIGHT_ICON_COLOR_ENABLED
     )
     {
       scheduleAutomaticColorRefresh(0L)
@@ -423,7 +427,10 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
         if (OverlayConfig.colorMode(preferences) != OverlayConfig.COLOR_MODE_AUTO) return@post
         if (darkIcons != null)
         {
-          applyAutomaticColor(if (darkIcons) Color.BLACK else Color.WHITE)
+          applyAutomaticColor(
+            if (darkIcons) OverlayConfig.darkIconColor(preferences)
+            else OverlayConfig.lightIconColor(preferences),
+          )
         } else if (OverlayConfig.screenshotFallbackEnabled(preferences))
         {
           sampleStatusBarBackground()
@@ -529,7 +536,11 @@ class StatusBarOverlayService : AccessibilityService(), SharedPreferences.OnShar
     }
     luminances.sort()
     val median = luminances[luminances.size / 2]
-    return if (median >= LIGHT_BACKGROUND_LUMINANCE) Color.BLACK else Color.WHITE
+    return if (median >= LIGHT_BACKGROUND_LUMINANCE) {
+      OverlayConfig.darkIconColor(preferences)
+    } else {
+      OverlayConfig.lightIconColor(preferences)
+    }
   }
 
   /**

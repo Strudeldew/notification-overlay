@@ -83,10 +83,8 @@ class StatusBarIconView(context: Context) : LinearLayout(context)
     // Recolor the already-rasterized alpha mask so the compositor receives final pixels.
     val pixels = IntArray(size * size)
     bitmap.getPixels(pixels, 0, size, 0, 0, size, size)
-    // Pure black is treated as transparent by the status-bar accessibility surface on
-    // some Sony builds. Use Android's near-black system-icon tone instead.
-    val effectiveColor = if (color == Color.BLACK) DARK_ICON_COLOR else color
-    val rgb = effectiveColor and 0x00ffffff
+    // use the color we got from the user.
+    val rgb = color and 0x00ffffff
     pixels.indices.forEach { index ->
       pixels[index] = (Color.alpha(pixels[index]) shl 24) or rgb
     }
@@ -113,6 +111,5 @@ class StatusBarIconView(context: Context) : LinearLayout(context)
   companion object
   {
     private const val TAG = "NotificationOverlay"
-    private const val DARK_ICON_COLOR = 0xff202124.toInt()
   }
 }
